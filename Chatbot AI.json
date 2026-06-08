@@ -1,0 +1,217 @@
+{
+  "name": "Chatbot AI",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": [
+          "message"
+        ],
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -32,
+        -16
+      ],
+      "id": "b87ee974-cac8-488f-b2e2-5f4aaa24c009",
+      "name": "Telegram Trigger",
+      "webhookId": "92e30ce9-332b-447e-a27d-b3acbaf243ab",
+      "credentials": {
+        "telegramApi": {
+          "id": "yB1QYn8CexyZs7d2",
+          "name": "Telegram account 3"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer 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"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"llama-3.3-70b-versatile\",\n  \"temperature\": 0,\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"Kamu adalah mesin ekstraksi dan penerjemah kata kunci. Database kami berisi dokumen berbahasa Inggris tentang Iran/Epstein. \\n\\nTugasmu: Ambil 1 atau maksimal 2 kata spesifik (masalah, kejadian, topik khusus) yang ditanyakan user, lalu TERJEMAHKAN ke Bahasa Inggris.\\n\\nATURAN MUTLAK:\\n1. Abaikan subjek utama (Jangan pernah output kata 'Iran' atau 'Epstein').\\n2. Output HARUS dalam Bahasa Inggris.\\n3. Hanya output kata spesifik (Contoh: input 'masalah apa yang diperbuat iran?', output wajib 'problem' atau 'conflict').\\n4. Output murni kata tanpa tanda baca.\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": \"={{ $('Telegram Trigger').item.json.message.text }}\"\n    }\n  ]\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        224,
+        0
+      ],
+      "id": "9ffe3c9a-90f0-4293-8773-600a25c1c9da",
+      "name": "HTTP Request"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "epstein_analysis",
+        "limit": 20,
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "extracted_text",
+              "condition": "ilike",
+              "keyValue": "=%iran%problem%"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        368,
+        0
+      ],
+      "id": "0cc774ac-0d6f-4336-9de1-eeb26e3c2b27",
+      "name": "Get many rows",
+      "credentials": {
+        "supabaseApi": {
+          "id": "QNUIudcRPzS2IwZ7",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "let gabunganKonteks = \"\";\n\n// Menggabungkan 20 data menjadi 1 teks panjang\nfor (let item of $input.all()) {\n  gabunganKonteks += `[Sentimen: ${item.json.sentiment}] Teks: ${item.json.extracted_text}\\n\\n`;\n}\n\n// Meneruskan hasil gabungan ke node selanjutnya\nreturn [{ json: { referensi_data: gabunganKonteks } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        560,
+        0
+      ],
+      "id": "d3176c58-0704-4757-acb1-43d635b03526",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Telegram Trigger').item.json.message.chat.id }}",
+        "text": "=={{ $json.choices[0].message.content }}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        976,
+        0
+      ],
+      "id": "3b44b002-8ba5-4abe-86ef-db9ca0b20a90",
+      "name": "Send a text message",
+      "webhookId": "a71f9170-eb25-43ac-bd29-ebdd55f068f0",
+      "credentials": {
+        "telegramApi": {
+          "id": "yB1QYn8CexyZs7d2",
+          "name": "Telegram account 3"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer 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"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{\n  {\n    \"model\": \"llama-3.3-70b-versatile\",\n    \"messages\": [\n      {\n        \"role\": \"system\",\n        \"content\": \"Kamu adalah asisten intelijen. Jawab pertanyaan user HANYA berdasarkan REFERENSI DATA berikut.\\n\\nATURAN MUTLAK:\\n1. Jawab menggunakan BAHASA YANG SAMA persis dengan bahasa yang digunakan user saat bertanya.\\n2. Jika referensi data berbahasa Inggris dan user bertanya dalam bahasa Indonesia, terjemahkan informasi dari referensi tersebut ke bahasa Indonesia saat menjawab.\\n\\nREFERENSI DATA:\\n\" + $json.referensi_data\n      },\n      {\n        \"role\": \"user\",\n        \"content\": $('Telegram Trigger').item.json.message.text\n      }\n    ]\n  }\n}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        768,
+        0
+      ],
+      "id": "7b212a8a-ef57-4d0d-bd0c-4ef7688c5a14",
+      "name": "HTTP Request2"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Get many rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get many rows": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request2": {
+      "main": [
+        [
+          {
+            "node": "Send a text message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "4826135d-fafc-4fd5-b8e3-35d5b4d56c6a",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "a1cbc8164b2884cf1aa2880a9062e3bbd74b607f5d150e049a4842e4105a4ed1"
+  },
+  "id": "5yfWTSJvqSaAQxXW",
+  "tags": []
+}

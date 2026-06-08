@@ -1,0 +1,26 @@
+version: "3.8"
+
+services:
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:latest
+    container_name: n8n_pipeline
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    environment:
+      # Konfigurasi Environment n8n
+      - N8N_HOST=0.0.0.0
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - NODE_ENV=production
+      - GENERIC_TIMEZONE=Asia/Jakarta
+      
+     
+    -WEBHOOK_URL=https://joesph-unpoached-unsurprisedly.ngrok-free.dev/
+      
+    volumes:
+      - n8n_data:/home/node/.n8n
+
+volumes:
+  n8n_data:
+    name: n8n_storage
