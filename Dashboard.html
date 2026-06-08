@@ -1,0 +1,1241 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Epstein Files — Analysis Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700;900&family=IBM+Plex+Mono:wght@300;400;500&family=IBM+Plex+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0a0a0b;
+      --bg2: #111114;
+      --bg3: #18181d;
+      --border: #2a2a35;
+      --border2: #3a3a48;
+      --gold: #c8a94a;
+      --gold2: #e8c96a;
+      --red: #c0392b;
+      --red2: #e74c3c;
+      --green: #27ae60;
+      --green2: #2ecc71;
+      --blue: #2980b9;
+      --blue2: #3498db;
+      --text: #e8e8ec;
+      --text2: #9898a8;
+      --text3: #58585f;
+      --mono: 'IBM Plex Mono', monospace;
+      --serif: 'Playfair Display', Georgia, serif;
+      --sans: 'IBM Plex Sans', sans-serif;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--sans);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* Noise texture overlay */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+      pointer-events: none;
+      z-index: 0;
+      opacity: 0.4;
+    }
+
+    /* Header */
+    .masthead {
+      border-bottom: 1px solid var(--border);
+      padding: 0 2rem;
+      position: relative;
+      background: var(--bg2);
+    }
+
+    .masthead-inner {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 1.5rem 0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+    }
+
+    .masthead-left { display: flex; flex-direction: column; gap: 0.25rem; }
+
+    .classified-badge {
+      font-family: var(--mono);
+      font-size: 0.6rem;
+      letter-spacing: 0.25em;
+      color: var(--red2);
+      border: 1px solid var(--red);
+      padding: 2px 8px;
+      display: inline-block;
+      width: fit-content;
+      text-transform: uppercase;
+      animation: pulse-badge 3s infinite;
+    }
+
+    @keyframes pulse-badge {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+
+    .masthead h1 {
+      font-family: var(--serif);
+      font-size: clamp(1.5rem, 3vw, 2.2rem);
+      font-weight: 900;
+      color: var(--text);
+      letter-spacing: -0.02em;
+      line-height: 1;
+    }
+
+    .masthead h1 span { color: var(--gold); }
+
+    .masthead-sub {
+      font-family: var(--mono);
+      font-size: 0.7rem;
+      color: var(--text3);
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .masthead-right {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 0.4rem;
+    }
+
+    .live-indicator {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-family: var(--mono);
+      font-size: 0.7rem;
+      color: var(--text2);
+    }
+
+    .live-dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: var(--green2);
+      animation: live-blink 1.5s infinite;
+    }
+
+    @keyframes live-blink {
+      0%, 100% { opacity: 1; box-shadow: 0 0 6px var(--green2); }
+      50% { opacity: 0.3; box-shadow: none; }
+    }
+
+    #last-updated {
+      font-family: var(--mono);
+      font-size: 0.65rem;
+      color: var(--text3);
+    }
+
+    /* Layout */
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 2rem;
+      position: relative;
+      z-index: 1;
+    }
+
+    /* Stats bar */
+    .stats-bar {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 1px;
+      border: 1px solid var(--border);
+      background: var(--border);
+      margin-bottom: 2rem;
+      animation: fadeSlideDown 0.6s ease both;
+    }
+
+    @keyframes fadeSlideDown {
+      from { opacity: 0; transform: translateY(-10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .stat-cell {
+      background: var(--bg2);
+      padding: 1.25rem 1.5rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+      transition: background 0.2s;
+    }
+
+    .stat-cell:hover { background: var(--bg3); }
+
+    .stat-label {
+      font-family: var(--mono);
+      font-size: 0.6rem;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: var(--text3);
+    }
+
+    .stat-value {
+      font-family: var(--serif);
+      font-size: 2rem;
+      font-weight: 700;
+      line-height: 1;
+    }
+
+    .stat-value.gold { color: var(--gold); }
+    .stat-value.red { color: var(--red2); }
+    .stat-value.green { color: var(--green2); }
+    .stat-value.blue { color: var(--blue2); }
+
+    .stat-sub {
+      font-size: 0.7rem;
+      color: var(--text3);
+      font-family: var(--mono);
+    }
+
+    /* Main grid */
+    .main-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.5rem;
+      margin-bottom: 2rem;
+    }
+
+    .panel {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      overflow: hidden;
+      animation: fadeUp 0.5s ease both;
+    }
+
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .panel:nth-child(1) { animation-delay: 0.1s; }
+    .panel:nth-child(2) { animation-delay: 0.2s; }
+    .panel:nth-child(3) { animation-delay: 0.3s; }
+    .panel:nth-child(4) { animation-delay: 0.4s; }
+
+    .panel-header {
+      border-bottom: 1px solid var(--border);
+      padding: 1rem 1.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: var(--bg3);
+    }
+
+    .panel-title {
+      font-family: var(--mono);
+      font-size: 0.7rem;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: var(--gold);
+    }
+
+    .panel-count {
+      font-family: var(--mono);
+      font-size: 0.65rem;
+      color: var(--text3);
+      background: var(--bg);
+      border: 1px solid var(--border);
+      padding: 2px 8px;
+    }
+
+    .panel-body { padding: 1.5rem; }
+
+    .chart-wrap {
+      position: relative;
+      height: 220px;
+    }
+
+    /* Sentiment bar */
+    .sentiment-bars { display: flex; flex-direction: column; gap: 0.75rem; }
+
+    .senti-row { display: flex; flex-direction: column; gap: 0.3rem; }
+
+    .senti-label {
+      display: flex;
+      justify-content: space-between;
+      font-family: var(--mono);
+      font-size: 0.7rem;
+      color: var(--text2);
+    }
+
+    .senti-track {
+      height: 6px;
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      overflow: hidden;
+    }
+
+    .senti-fill {
+      height: 100%;
+      transition: width 1s cubic-bezier(0.4,0,0.2,1);
+      width: 0;
+    }
+
+    .senti-fill.positive { background: var(--green2); }
+    .senti-fill.negative { background: var(--red2); }
+    .senti-fill.neutral  { background: var(--gold); }
+    .senti-fill.mixed    { background: var(--blue2); }
+
+    /* Keyword cloud */
+    .keyword-cloud {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+    }
+
+    .kw-tag {
+      font-family: var(--mono);
+      font-size: 0.65rem;
+      padding: 4px 10px;
+      border: 1px solid var(--border2);
+      color: var(--text2);
+      letter-spacing: 0.05em;
+      cursor: pointer;
+      transition: all 0.2s;
+      background: var(--bg3);
+    }
+
+    .kw-tag:hover, .kw-tag.active {
+      border-color: var(--gold);
+      color: var(--gold);
+      background: rgba(200,169,74,0.08);
+    }
+
+    /* Full-width sections */
+    .full-panel {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      margin-bottom: 1.5rem;
+      animation: fadeUp 0.5s ease both;
+      animation-delay: 0.5s;
+    }
+
+    /* Records table */
+    .records-wrap {
+      overflow-x: auto;
+    }
+
+    .filter-bar {
+      display: flex;
+      gap: 0.75rem;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .search-box {
+      flex: 1;
+      min-width: 200px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 0.75rem;
+      padding: 0.5rem 0.75rem;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    .search-box:focus { border-color: var(--gold); }
+    .search-box::placeholder { color: var(--text3); }
+
+    .filter-select {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: var(--text2);
+      font-family: var(--mono);
+      font-size: 0.7rem;
+      padding: 0.5rem 0.75rem;
+      outline: none;
+      cursor: pointer;
+    }
+
+    .records-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.78rem;
+    }
+
+    .records-table th {
+      font-family: var(--mono);
+      font-size: 0.6rem;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--text3);
+      background: var(--bg3);
+      border-bottom: 1px solid var(--border);
+      padding: 0.75rem 1rem;
+      text-align: left;
+      white-space: nowrap;
+    }
+
+    .records-table td {
+      padding: 0.85rem 1rem;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+      color: var(--text2);
+    }
+
+    .records-table tr:hover td { background: rgba(200,169,74,0.03); }
+    .records-table tr:last-child td { border-bottom: none; }
+
+    .td-id {
+      font-family: var(--mono);
+      color: var(--text3);
+      font-size: 0.65rem;
+    }
+
+    .td-keyword {
+      font-family: var(--mono);
+      font-size: 0.7rem;
+      color: var(--gold);
+      white-space: nowrap;
+    }
+
+    .td-text {
+      max-width: 260px;
+      font-size: 0.75rem;
+      line-height: 1.5;
+      color: var(--text2);
+    }
+
+    .td-text-inner {
+      display: -webkit-box;
+      -webkit-line-clamp: 3;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+
+    .sentiment-pill {
+      font-family: var(--mono);
+      font-size: 0.6rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      padding: 2px 8px;
+      border-radius: 0;
+      border: 1px solid;
+      white-space: nowrap;
+      display: inline-block;
+    }
+
+    .sentiment-pill.positive { border-color: var(--green); color: var(--green2); }
+    .sentiment-pill.negative { border-color: var(--red); color: var(--red2); }
+    .sentiment-pill.neutral  { border-color: var(--text3); color: var(--text2); }
+    .sentiment-pill.mixed    { border-color: var(--blue); color: var(--blue2); }
+
+    .key-points-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 0.3rem;
+      max-width: 280px;
+    }
+
+    .key-points-list li {
+      font-size: 0.7rem;
+      color: var(--text2);
+      line-height: 1.4;
+      padding-left: 1rem;
+      position: relative;
+    }
+
+    .key-points-list li::before {
+      content: '›';
+      position: absolute;
+      left: 0;
+      color: var(--gold);
+    }
+
+    .emotions-wrap { display: flex; flex-wrap: wrap; gap: 0.3rem; max-width: 200px; }
+
+    .emotion-chip {
+      font-family: var(--mono);
+      font-size: 0.6rem;
+      padding: 1px 6px;
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      color: var(--text3);
+      letter-spacing: 0.05em;
+    }
+
+    .td-date {
+      font-family: var(--mono);
+      font-size: 0.65rem;
+      color: var(--text3);
+      white-space: nowrap;
+    }
+
+    /* Expand row */
+    .expand-btn {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--text3);
+      font-family: var(--mono);
+      font-size: 0.6rem;
+      padding: 2px 8px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .expand-btn:hover { border-color: var(--gold); color: var(--gold); }
+
+    .expanded-row td {
+      background: rgba(200,169,74,0.04);
+      border-left: 2px solid var(--gold);
+      padding: 1rem 1.5rem;
+      font-size: 0.75rem;
+      line-height: 1.7;
+      color: var(--text2);
+    }
+
+    .expanded-content { display: flex; gap: 2rem; flex-wrap: wrap; }
+    .expanded-section { flex: 1; min-width: 200px; }
+    .expanded-section-title {
+      font-family: var(--mono);
+      font-size: 0.6rem;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: var(--gold);
+      margin-bottom: 0.5rem;
+    }
+
+    /* Pagination */
+    .pagination {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 1rem 1.5rem;
+      border-top: 1px solid var(--border);
+      font-family: var(--mono);
+      font-size: 0.7rem;
+      color: var(--text3);
+    }
+
+    .page-btns { display: flex; gap: 0.5rem; }
+
+    .page-btn {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      color: var(--text2);
+      font-family: var(--mono);
+      font-size: 0.65rem;
+      padding: 4px 12px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .page-btn:hover:not(:disabled) { border-color: var(--gold); color: var(--gold); }
+    .page-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+    .page-btn.active { background: var(--gold); color: var(--bg); border-color: var(--gold); }
+
+    /* Loading */
+    .loading-screen {
+      position: fixed;
+      inset: 0;
+      background: var(--bg);
+      z-index: 100;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 1.5rem;
+      transition: opacity 0.5s, visibility 0.5s;
+    }
+
+    .loading-screen.hidden { opacity: 0; visibility: hidden; }
+
+    .loading-logo {
+      font-family: var(--serif);
+      font-size: 2rem;
+      font-weight: 900;
+      color: var(--text3);
+    }
+
+    .loading-logo span { color: var(--gold); }
+
+    .loading-bar-wrap {
+      width: 200px;
+      height: 2px;
+      background: var(--border);
+      overflow: hidden;
+    }
+
+    .loading-bar-fill {
+      height: 100%;
+      background: var(--gold);
+      animation: loading-march 1.5s ease infinite;
+    }
+
+    @keyframes loading-march {
+      0% { width: 0%; margin-left: 0; }
+      50% { width: 60%; margin-left: 20%; }
+      100% { width: 0%; margin-left: 100%; }
+    }
+
+    .loading-text {
+      font-family: var(--mono);
+      font-size: 0.65rem;
+      letter-spacing: 0.2em;
+      color: var(--text3);
+      text-transform: uppercase;
+    }
+
+    /* Error state */
+    .error-msg {
+      font-family: var(--mono);
+      font-size: 0.75rem;
+      color: var(--red2);
+      background: rgba(192,57,43,0.1);
+      border: 1px solid var(--red);
+      padding: 1rem 1.5rem;
+      display: none;
+    }
+
+    /* Empty state */
+    .empty-state {
+      text-align: center;
+      padding: 3rem 1.5rem;
+      font-family: var(--mono);
+      font-size: 0.75rem;
+      color: var(--text3);
+      letter-spacing: 0.1em;
+    }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: var(--bg); }
+    ::-webkit-scrollbar-thumb { background: var(--border2); }
+    ::-webkit-scrollbar-thumb:hover { background: var(--gold); }
+
+    /* Responsive */
+    @media (max-width: 900px) {
+      .main-grid { grid-template-columns: 1fr; }
+      .container { padding: 1rem; }
+      .masthead { padding: 0 1rem; }
+    }
+
+    @media (max-width: 600px) {
+      .stats-bar { grid-template-columns: 1fr 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- Loading screen -->
+<div class="loading-screen" id="loading-screen">
+  <div class="loading-logo">Epstein <span>Files</span></div>
+  <div class="loading-bar-wrap"><div class="loading-bar-fill"></div></div>
+  <div class="loading-text">Connecting to database...</div>
+</div>
+
+<!-- Masthead -->
+<header class="masthead">
+  <div class="masthead-inner">
+    <div class="masthead-left">
+      <span class="classified-badge">● classified analysis</span>
+      <h1>Epstein <span>Files</span></h1>
+      <div class="masthead-sub">Scraping Intelligence Dashboard · epstein_analysis</div>
+    </div>
+    <div class="masthead-right">
+      <div class="live-indicator">
+        <div class="live-dot"></div>
+        <span>Live data</span>
+      </div>
+      <div id="last-updated">Updating...</div>
+    </div>
+  </div>
+</header>
+
+<div class="container">
+
+  <div class="error-msg" id="error-msg"></div>
+
+  <!-- Stats bar -->
+  <div class="stats-bar" id="stats-bar">
+    <div class="stat-cell">
+      <div class="stat-label">Total Records</div>
+      <div class="stat-value gold" id="stat-total">—</div>
+      <div class="stat-sub">entries scraped</div>
+    </div>
+    <div class="stat-cell">
+      <div class="stat-label">Unique Keywords</div>
+      <div class="stat-value blue" id="stat-keywords">—</div>
+      <div class="stat-sub">distinct topics</div>
+    </div>
+    <div class="stat-cell">
+      <div class="stat-label">Sentiment: Negative</div>
+      <div class="stat-value red" id="stat-negative">—</div>
+      <div class="stat-sub">negative entries</div>
+    </div>
+    <div class="stat-cell">
+      <div class="stat-label">Sentiment: Positive</div>
+      <div class="stat-value green" id="stat-positive">—</div>
+      <div class="stat-sub">positive entries</div>
+    </div>
+    <div class="stat-cell">
+      <div class="stat-label">Total Key Points</div>
+      <div class="stat-value gold" id="stat-keypoints">—</div>
+      <div class="stat-sub">extracted insights</div>
+    </div>
+  </div>
+
+  <!-- Charts row -->
+  <div class="main-grid">
+
+    <!-- Sentiment distribution -->
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title">Sentiment Distribution</div>
+        <div class="panel-count" id="sentiment-count">—</div>
+      </div>
+      <div class="panel-body">
+        <div class="chart-wrap">
+          <canvas id="sentiment-chart"></canvas>
+        </div>
+        <div class="sentiment-bars" id="sentiment-bars" style="margin-top:1.25rem;"></div>
+      </div>
+    </div>
+
+    <!-- Emotion frequency -->
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title">Top Emotions Detected</div>
+        <div class="panel-count" id="emotion-count">—</div>
+      </div>
+      <div class="panel-body">
+        <div class="chart-wrap">
+          <canvas id="emotion-chart"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- Keyword frequency -->
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title">Keyword Frequency</div>
+        <div class="panel-count" id="kw-count">—</div>
+      </div>
+      <div class="panel-body">
+        <div class="chart-wrap">
+          <canvas id="keyword-chart"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- Keyword filter cloud -->
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title">Filter by Keyword</div>
+        <div class="panel-count" id="cloud-count">—</div>
+      </div>
+      <div class="panel-body">
+        <div class="keyword-cloud" id="keyword-cloud"></div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Records table -->
+  <div class="full-panel">
+    <div class="panel-header">
+      <div class="panel-title">Analysis Records</div>
+      <div class="filter-bar">
+        <input class="search-box" type="text" id="search-input" placeholder="Search keyword or text...">
+        <select class="filter-select" id="sentiment-filter">
+          <option value="">All sentiments</option>
+          <option value="positive">Positive</option>
+          <option value="negative">Negative</option>
+          <option value="neutral">Neutral</option>
+          <option value="mixed">Mixed</option>
+        </select>
+      </div>
+    </div>
+    <div class="records-wrap">
+      <table class="records-table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Keyword</th>
+            <th>Extracted Text</th>
+            <th>Key Points</th>
+            <th>Sentiment</th>
+            <th>Emotions</th>
+            <th>Date</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="records-tbody">
+          <tr><td colspan="8" class="empty-state">Loading records...</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="pagination" id="pagination" style="display:none;">
+      <div id="pagination-info">— of — records</div>
+      <div class="page-btns" id="page-btns"></div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+(async () => {
+  /* ─── Supabase init ─── */
+  const { createClient } = supabase;
+  const supabaseUrl = 'https://bpjivgptvjnjtjuxcvvi.supabase.co';
+  const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJwaml2Z3B0dmpuanRqdXhjdnZpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkyNjAzMjIsImV4cCI6MjA5NDgzNjMyMn0.G_KXGyvhbttNPpqKfHy7QK0ysS3BSwwjDuBjMF9KN0I';
+  const db = createClient(supabaseUrl, supabaseKey);
+
+  /* ─── State ─── */
+  let allData = [];
+  let filteredData = [];
+  let activeKeyword = null;
+  let currentPage = 1;
+  const PAGE_SIZE = 15;
+  let sentimentChart, emotionChart, keywordChartInst;
+
+  /* ─── Helpers ─── */
+  const $ = id => document.getElementById(id);
+  const fmt = d => new Date(d).toLocaleDateString('id-ID', { year:'numeric', month:'short', day:'numeric' });
+
+  function normSentiment(s) {
+    if (!s) return 'neutral';
+    const v = s.toLowerCase();
+    if (v.includes('pos')) return 'positive';
+    if (v.includes('neg')) return 'negative';
+    if (v.includes('mix')) return 'mixed';
+    return 'neutral';
+  }
+
+  function getEmotions(raw) {
+    if (!raw) return [];
+    if (Array.isArray(raw)) return raw.map(String);
+    if (typeof raw === 'object') return Object.keys(raw);
+    if (typeof raw === 'string') {
+      try { const p = JSON.parse(raw); return getEmotions(p); } catch { return [raw]; }
+    }
+    return [];
+  }
+
+  function getKeyPoints(raw) {
+    if (!raw) return [];
+    if (Array.isArray(raw)) return raw.map(String);
+    if (typeof raw === 'object') return Object.values(raw).map(String);
+    if (typeof raw === 'string') {
+      try { const p = JSON.parse(raw); return getKeyPoints(p); } catch { return [raw]; }
+    }
+    return [];
+  }
+
+  /* ─── Fetch ─── */
+  async function fetchAll() {
+    try {
+      const { data, error } = await db
+        .from('epstein_analysis')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      return data || [];
+    } catch (e) {
+      showError('Gagal mengambil data: ' + e.message);
+      return [];
+    }
+  }
+
+  function showError(msg) {
+    const el = $('error-msg');
+    el.textContent = '⚠ ' + msg;
+    el.style.display = 'block';
+    setTimeout(() => { el.style.display = 'none'; }, 8000);
+  }
+
+  /* ─── Stats ─── */
+  function renderStats(data) {
+    const total = data.length;
+    const keywords = [...new Set(data.map(r => r.keyword).filter(Boolean))].length;
+    const negative = data.filter(r => normSentiment(r.sentiment) === 'negative').length;
+    const positive = data.filter(r => normSentiment(r.sentiment) === 'positive').length;
+    const keypoints = data.reduce((s, r) => s + getKeyPoints(r.key_points).length, 0);
+
+    animCount($('stat-total'), total);
+    animCount($('stat-keywords'), keywords);
+    animCount($('stat-negative'), negative);
+    animCount($('stat-positive'), positive);
+    animCount($('stat-keypoints'), keypoints);
+
+    $('last-updated').textContent = 'Updated: ' + new Date().toLocaleTimeString('id-ID');
+  }
+
+  function animCount(el, target) {
+    const start = Date.now();
+    const dur = 800;
+    const tick = () => {
+      const p = Math.min(1, (Date.now() - start) / dur);
+      el.textContent = Math.round(p * target);
+      if (p < 1) requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }
+
+  /* ─── Charts ─── */
+  const CHART_DEFAULTS = {
+    color: '#9898a8',
+    borderColor: '#2a2a35',
+    plugins: { legend: { display: false } },
+    scales: {
+      x: {
+        ticks: { color: '#58585f', font: { family: "'IBM Plex Mono'", size: 10 } },
+        grid: { color: '#1a1a22' }, border: { color: '#2a2a35' }
+      },
+      y: {
+        ticks: { color: '#58585f', font: { family: "'IBM Plex Mono'", size: 10 } },
+        grid: { color: '#1a1a22' }, border: { color: '#2a2a35' }
+      }
+    }
+  };
+
+  function renderSentimentChart(data) {
+    const counts = { positive: 0, negative: 0, neutral: 0, mixed: 0 };
+    data.forEach(r => { const s = normSentiment(r.sentiment); if (counts[s] !== undefined) counts[s]++; });
+
+    const labels = Object.keys(counts);
+    const values = Object.values(counts);
+    const colors = ['#27ae60','#c0392b','#c8a94a','#2980b9'];
+    const bgColors = ['rgba(39,174,96,0.2)','rgba(192,57,43,0.2)','rgba(200,169,74,0.2)','rgba(41,128,185,0.2)'];
+
+    $('sentiment-count').textContent = data.length + ' records';
+
+    if (sentimentChart) sentimentChart.destroy();
+    const ctx = document.getElementById('sentiment-chart').getContext('2d');
+    sentimentChart = new Chart(ctx, {
+      type: 'doughnut',
+      data: {
+        labels,
+        datasets: [{ data: values, backgroundColor: bgColors, borderColor: colors, borderWidth: 1.5, hoverOffset: 6 }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        cutout: '65%',
+        plugins: {
+          legend: {
+            display: true,
+            position: 'right',
+            labels: { color: '#9898a8', font: { family: "'IBM Plex Mono'", size: 10 }, padding: 14, boxWidth: 10 }
+          },
+          tooltip: { callbacks: { label: ctx => ` ${ctx.label}: ${ctx.raw}` } }
+        }
+      }
+    });
+
+    // Sentiment bars
+    const barsEl = $('sentiment-bars');
+    const total = data.length || 1;
+    barsEl.innerHTML = labels.map((l, i) => `
+      <div class="senti-row">
+        <div class="senti-label"><span>${l.charAt(0).toUpperCase()+l.slice(1)}</span><span>${values[i]}</span></div>
+        <div class="senti-track"><div class="senti-fill ${l}" style="width:${(values[i]/total*100).toFixed(1)}%"></div></div>
+      </div>`).join('');
+
+    setTimeout(() => {
+      barsEl.querySelectorAll('.senti-fill').forEach(el => {
+        const w = el.style.width; el.style.width = '0';
+        setTimeout(() => { el.style.width = w; }, 100);
+      });
+    }, 50);
+  }
+
+  function renderEmotionChart(data) {
+    const emotionMap = {};
+    data.forEach(r => {
+      getEmotions(r.emotions).forEach(e => {
+        const key = e.trim().toLowerCase();
+        if (key) emotionMap[key] = (emotionMap[key] || 0) + 1;
+      });
+    });
+
+    const sorted = Object.entries(emotionMap).sort((a,b) => b[1]-a[1]).slice(0,12);
+    if (!sorted.length) { $('emotion-count').textContent = '0 emotions'; return; }
+
+    const labels = sorted.map(([k]) => k);
+    const values = sorted.map(([,v]) => v);
+    $('emotion-count').textContent = Object.keys(emotionMap).length + ' types';
+
+    if (emotionChart) emotionChart.destroy();
+    const ctx = document.getElementById('emotion-chart').getContext('2d');
+    emotionChart = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [{
+          data: values,
+          backgroundColor: 'rgba(200,169,74,0.15)',
+          borderColor: '#c8a94a',
+          borderWidth: 1,
+          borderRadius: 0
+        }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        indexAxis: 'y',
+        plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => ` ${ctx.raw} mentions` } } },
+        scales: {
+          x: { ticks: { color: '#58585f', font: { family: "'IBM Plex Mono'", size: 9 } }, grid: { color: '#1a1a22' }, border: { color: '#2a2a35' } },
+          y: { ticks: { color: '#9898a8', font: { family: "'IBM Plex Mono'", size: 9 } }, grid: { color: '#1a1a22' }, border: { color: '#2a2a35' } }
+        }
+      }
+    });
+  }
+
+  function renderKeywordChart(data) {
+    const kwMap = {};
+    data.forEach(r => { if (r.keyword) kwMap[r.keyword] = (kwMap[r.keyword] || 0) + 1; });
+
+    const sorted = Object.entries(kwMap).sort((a,b) => b[1]-a[1]).slice(0,15);
+    if (!sorted.length) return;
+
+    $('kw-count').textContent = sorted.length + ' keywords';
+
+    const labels = sorted.map(([k]) => k);
+    const values = sorted.map(([,v]) => v);
+
+    if (keywordChartInst) keywordChartInst.destroy();
+    const ctx = document.getElementById('keyword-chart').getContext('2d');
+    keywordChartInst = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [{
+          data: values,
+          backgroundColor: 'rgba(41,128,185,0.15)',
+          borderColor: '#2980b9',
+          borderWidth: 1,
+          borderRadius: 0
+        }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { ticks: { color: '#58585f', font: { family: "'IBM Plex Mono'", size: 9 }, maxRotation: 45, minRotation: 30 }, grid: { color: '#1a1a22' }, border: { color: '#2a2a35' } },
+          y: { ticks: { color: '#58585f', font: { family: "'IBM Plex Mono'", size: 9 } }, grid: { color: '#1a1a22' }, border: { color: '#2a2a35' } }
+        }
+      }
+    });
+  }
+
+  /* ─── Keyword cloud ─── */
+  function renderCloud(data) {
+    const kwMap = {};
+    data.forEach(r => { if (r.keyword) kwMap[r.keyword] = (kwMap[r.keyword] || 0) + 1; });
+    const sorted = Object.entries(kwMap).sort((a,b) => b[1]-a[1]);
+    $('cloud-count').textContent = sorted.length + ' keywords';
+
+    const cloud = $('keyword-cloud');
+    cloud.innerHTML = `<div class="kw-tag ${!activeKeyword ? 'active' : ''}" data-kw="">All</div>` +
+      sorted.map(([k,v]) => `<div class="kw-tag ${activeKeyword===k?'active':''}" data-kw="${k}">${k} <span style="opacity:0.4">${v}</span></div>`).join('');
+
+    cloud.querySelectorAll('.kw-tag').forEach(tag => {
+      tag.addEventListener('click', () => {
+        activeKeyword = tag.dataset.kw || null;
+        cloud.querySelectorAll('.kw-tag').forEach(t => t.classList.remove('active'));
+        tag.classList.add('active');
+        applyFilters();
+      });
+    });
+  }
+
+  /* ─── Table ─── */
+  function applyFilters() {
+    const search = $('search-input').value.toLowerCase().trim();
+    const sentFilter = $('sentiment-filter').value;
+
+    filteredData = allData.filter(r => {
+      const kwMatch = !activeKeyword || r.keyword === activeKeyword;
+      const sMatch = !sentFilter || normSentiment(r.sentiment) === sentFilter;
+      const sSearch = !search ||
+        (r.keyword || '').toLowerCase().includes(search) ||
+        (r.extracted_text || '').toLowerCase().includes(search);
+      return kwMatch && sMatch && sSearch;
+    });
+
+    currentPage = 1;
+    renderTable();
+  }
+
+  function renderTable() {
+    const tbody = $('records-tbody');
+    const start = (currentPage - 1) * PAGE_SIZE;
+    const slice = filteredData.slice(start, start + PAGE_SIZE);
+
+    if (!filteredData.length) {
+      tbody.innerHTML = '<tr><td colspan="8" class="empty-state">No records match your filter</td></tr>';
+      $('pagination').style.display = 'none';
+      return;
+    }
+
+    tbody.innerHTML = slice.map(r => {
+      const sLabel = normSentiment(r.sentiment);
+      const keypts = getKeyPoints(r.key_points);
+      const emos = getEmotions(r.emotions);
+      return `
+      <tr class="record-row" data-id="${r.id}">
+        <td class="td-id">#${r.id}</td>
+        <td class="td-keyword">${escHtml(r.keyword || '—')}</td>
+        <td class="td-text"><div class="td-text-inner">${escHtml(r.extracted_text || '—')}</div></td>
+        <td>
+          <ul class="key-points-list">
+            ${keypts.slice(0,3).map(p => `<li>${escHtml(p)}</li>`).join('')}
+            ${keypts.length > 3 ? `<li style="color:var(--text3)">+${keypts.length-3} more</li>` : ''}
+          </ul>
+        </td>
+        <td><span class="sentiment-pill ${sLabel}">${sLabel}</span></td>
+        <td>
+          <div class="emotions-wrap">
+            ${emos.slice(0,5).map(e => `<span class="emotion-chip">${escHtml(e)}</span>`).join('')}
+          </div>
+        </td>
+        <td class="td-date">${r.created_at ? fmt(r.created_at) : '—'}</td>
+        <td><button class="expand-btn" data-id="${r.id}">▸ detail</button></td>
+      </tr>`;
+    }).join('');
+
+    // Expand buttons
+    tbody.querySelectorAll('.expand-btn').forEach(btn => {
+      btn.addEventListener('click', () => toggleExpand(btn));
+    });
+
+    renderPagination();
+  }
+
+  function toggleExpand(btn) {
+    const id = btn.dataset.id;
+    const row = btn.closest('tr');
+    const existing = document.getElementById('exp-' + id);
+    if (existing) { existing.remove(); btn.textContent = '▸ detail'; return; }
+
+    const r = allData.find(x => String(x.id) === String(id));
+    if (!r) return;
+
+    const keypts = getKeyPoints(r.key_points);
+    const emos = getEmotions(r.emotions);
+    const sLabel = normSentiment(r.sentiment);
+
+    const expRow = document.createElement('tr');
+    expRow.id = 'exp-' + id;
+    expRow.className = 'expanded-row';
+    expRow.innerHTML = `<td colspan="8">
+      <div class="expanded-content">
+        <div class="expanded-section" style="flex:2;min-width:280px;">
+          <div class="expanded-section-title">Full Extracted Text</div>
+          <div style="font-size:0.75rem;line-height:1.8;color:var(--text2);white-space:pre-wrap;">${escHtml(r.extracted_text || '—')}</div>
+        </div>
+        <div class="expanded-section">
+          <div class="expanded-section-title">All Key Points</div>
+          <ul class="key-points-list">
+            ${keypts.map(p => `<li>${escHtml(p)}</li>`).join('')}
+          </ul>
+        </div>
+        <div class="expanded-section">
+          <div class="expanded-section-title">Sentiment</div>
+          <span class="sentiment-pill ${sLabel}">${sLabel}</span>
+          ${r.sentiment ? `<div style="font-size:0.7rem;color:var(--text2);margin-top:0.5rem;">${escHtml(r.sentiment)}</div>` : ''}
+          <div class="expanded-section-title" style="margin-top:1rem;">Emotions</div>
+          <div class="emotions-wrap">
+            ${emos.map(e => `<span class="emotion-chip">${escHtml(e)}</span>`).join('')}
+          </div>
+          <div class="expanded-section-title" style="margin-top:1rem;">Keyword</div>
+          <div class="td-keyword">${escHtml(r.keyword || '—')}</div>
+          <div class="expanded-section-title" style="margin-top:1rem;">Created At</div>
+          <div style="font-family:var(--mono);font-size:0.65rem;color:var(--text3);">${r.created_at ? new Date(r.created_at).toLocaleString('id-ID') : '—'}</div>
+        </div>
+      </div>
+    </td>`;
+
+    row.after(expRow);
+    btn.textContent = '▾ close';
+  }
+
+  function renderPagination() {
+    const total = filteredData.length;
+    const pages = Math.ceil(total / PAGE_SIZE);
+    const pag = $('pagination');
+
+    if (pages <= 1) { pag.style.display = 'none'; return; }
+    pag.style.display = 'flex';
+
+    const start = (currentPage-1)*PAGE_SIZE + 1;
+    const end = Math.min(currentPage*PAGE_SIZE, total);
+    $('pagination-info').textContent = `${start}–${end} of ${total} records`;
+
+    const btns = $('page-btns');
+    btns.innerHTML = '';
+
+    const prev = document.createElement('button');
+    prev.className = 'page-btn';
+    prev.textContent = '← Prev';
+    prev.disabled = currentPage === 1;
+    prev.addEventListener('click', () => { currentPage--; renderTable(); window.scrollTo(0,0); });
+    btns.appendChild(prev);
+
+    const maxPages = 7;
+    let startP = Math.max(1, currentPage - 3);
+    let endP = Math.min(pages, startP + maxPages - 1);
+    if (endP - startP < maxPages - 1) startP = Math.max(1, endP - maxPages + 1);
+
+    for (let p = startP; p <= endP; p++) {
+      const b = document.createElement('button');
+      b.className = 'page-btn' + (p === currentPage ? ' active' : '');
+      b.textContent = p;
+      b.addEventListener('click', () => { currentPage = p; renderTable(); });
+      btns.appendChild(b);
+    }
+
+    const next = document.createElement('button');
+    next.className = 'page-btn';
+    next.textContent = 'Next →';
+    next.disabled = currentPage === pages;
+    next.addEventListener('click', () => { currentPage++; renderTable(); window.scrollTo(0,0); });
+    btns.appendChild(next);
+  }
+
+  function escHtml(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  /* ─── Init ─── */
+  async function init() {
+    allData = await fetchAll();
+    filteredData = [...allData];
+
+    renderStats(allData);
+    renderSentimentChart(allData);
+    renderEmotionChart(allData);
+    renderKeywordChart(allData);
+    renderCloud(allData);
+    renderTable();
+
+    $('search-input').addEventListener('input', applyFilters);
+    $('sentiment-filter').addEventListener('change', applyFilters);
+
+    // Hide loading
+    setTimeout(() => { $('loading-screen').classList.add('hidden'); }, 600);
+  }
+
+  init();
+})();
+</script>
+</body>
+</html>
